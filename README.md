@@ -21,12 +21,40 @@ number. It runs entirely on your own computer — no server, no login.
    TWILIO_API_KEY_SID=
    TWILIO_API_KEY_SECRET=
    TWILIO_FROM_NUMBER=
+   BDM_PHONE_NUMBER=
+   TWILIO_TWIML_URL=
    ```
 
    No `.env`, or one with values still missing? That's fine — the app runs
    in **dry-run mode**: you can try the screen, the number validation, and
    the confirmation popup end-to-end without placing a real call or being
    charged.
+
+## How calls connect
+
+This app doesn't stream audio through your computer. Instead, Twilio calls
+the BDM's own phone (`BDM_PHONE_NUMBER`) first, and once they answer, it
+dials the prospect and bridges the two calls together so they can talk live.
+
+To make this work you need to run `twiml_server.py`, a small Flask server
+that tells Twilio how to bridge the call, and expose it over HTTPS so
+Twilio can reach it:
+
+```
+python twiml_server.py
+```
+
+In another terminal, expose it with a tunnel such as
+[ngrok](https://ngrok.com/):
+
+```
+ngrok http 5000
+```
+
+Copy the `https://...ngrok...` URL ngrok prints and set it as
+`TWILIO_TWIML_URL` in `.env` (no trailing path needed — just the base URL).
+Both `twiml_server.py` and the tunnel need to stay running while the dialer
+app is in use.
 
 ## Running the app
 
@@ -35,9 +63,10 @@ python app.py
 ```
 
 Enter a phone number in international format (e.g. `+14155552671`), click
-**Call**, and confirm in the popup that appears. A banner at the top of the
-window always tells you whether the app is in dry-run mode or ready to
-place live calls.
+**Call**, and confirm in the popup that appears. Your own phone
+(`BDM_PHONE_NUMBER`) will ring first — answer it, and you'll be bridged to
+the prospect. A banner at the top of the window always tells you whether
+the app is in dry-run mode or ready to place live calls.
 
 ## Notes
 
