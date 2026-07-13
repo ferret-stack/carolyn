@@ -113,10 +113,13 @@ def _place_call_live(to_number: str, config: TwilioConfig) -> CallResult:
 
     client = Client(config.api_key_sid, config.api_key_secret, config.account_sid)
     try:
+        # Use TwiML Bin URL from environment, or fall back to demo (which has the rickroll)
+        twiml_url = os.getenv("TWILIO_TWIML_URL", "http://demo.twilio.com/docs/voice.xml")
+
         call = client.calls.create(
             to=to_number,
             from_=config.from_number,
-            url="http://demo.twilio.com/docs/voice.xml",
+            url=twiml_url,
         )
     except TwilioException as exc:
         raise CallError(f"Twilio API error: {exc}") from exc
