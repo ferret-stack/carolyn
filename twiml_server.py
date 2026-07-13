@@ -30,11 +30,13 @@ def connect():
         return Response(str(response), mimetype="application/xml")
 
     response.say("Connecting your call now.")
-    dial = Dial(caller_id=os.getenv("TWILIO_FROM_NUMBER"))
+    from_number = os.getenv("TWILIO_FROM_NUMBER")
+    dial = Dial(caller_id=from_number) if from_number else Dial()
     dial.number(to_number)
     response.append(dial)
     return Response(str(response), mimetype="application/xml")
 
 
 if __name__ == "__main__":
+    # Local dev only. In production (e.g. Render) gunicorn serves this app instead.
     app.run(debug=False, port=5000)

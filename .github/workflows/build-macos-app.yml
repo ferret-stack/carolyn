@@ -1,0 +1,33 @@
+name: Build macOS App
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build .app
+        run: pyinstaller --windowed --noconfirm --name "BDM Dialer" app.py
+
+      - name: Zip app bundle
+        run: |
+          cd dist
+          zip -r "BDM-Dialer-macOS.zip" "BDM Dialer.app"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: BDM-Dialer-macOS
+          path: dist/BDM-Dialer-macOS.zip
