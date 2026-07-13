@@ -27,6 +27,7 @@ REQUIRED_ENV_VARS = [
     "TWILIO_API_KEY_SID",
     "TWILIO_API_KEY_SECRET",
     "TWILIO_FROM_NUMBER",
+    "TWILIO_TWIML_URL",
 ]
 
 
@@ -116,7 +117,7 @@ def _place_call_live(to_number: str, config: TwilioConfig) -> CallResult:
         call = client.calls.create(
             to=to_number,
             from_=config.from_number,
-            url="http://demo.twilio.com/docs/voice.xml",
+            url="https://handler.twilio.com/twiml/EHb5680885d8680da496af67d773b00d12",
         )
     except TwilioException as exc:
         raise CallError(f"Twilio API error: {exc}") from exc
