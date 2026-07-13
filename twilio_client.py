@@ -14,12 +14,18 @@ TWILIO_DRY_RUN is explicitly set. Once real credentials are filled into
 import os
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List, Optional
 from urllib.parse import quote
 
 from dotenv import load_dotenv
 
+# Local dev: .env next to the script, found via cwd/parent search.
 load_dotenv()
+# Packaged app (e.g. the macOS .app build): cwd is unpredictable when
+# double-clicked, so also check a fixed, user-writable location. Values here
+# win if both files set the same key.
+load_dotenv(Path.home() / ".bdm_dialer" / ".env", override=True)
 
 E164_PATTERN = re.compile(r"^\+[1-9]\d{1,14}$")
 
