@@ -148,7 +148,6 @@ def _place_call_live(to_number: str, config: TwilioConfig) -> CallResult:
         call = client.calls.create(
             to=config.bdm_phone_number,
             from_=config.from_number,
-            url="https://handler.twilio.com/twiml/EHb5680885d8680da496af67d773b00d12",
             url=connect_url,
         )
     except TwilioException as exc:
