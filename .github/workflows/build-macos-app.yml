@@ -5,7 +5,14 @@ on:
 
 jobs:
   build:
-    runs-on: macos-latest
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14   # Apple Silicon (M1/M2/M3/M4)
+            arch: arm64
+          - runner: macos-13   # Intel
+            arch: x86_64
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,10 +31,10 @@ jobs:
       - name: Zip app bundle
         run: |
           cd dist
-          zip -r "BDM-Dialer-macOS.zip" "BDM Dialer.app"
+          zip -r "BDM-Dialer-macOS-${{ matrix.arch }}.zip" "BDM Dialer.app"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: BDM-Dialer-macOS
-          path: dist/BDM-Dialer-macOS.zip
+          name: BDM-Dialer-macOS-${{ matrix.arch }}
+          path: dist/BDM-Dialer-macOS-${{ matrix.arch }}.zip
