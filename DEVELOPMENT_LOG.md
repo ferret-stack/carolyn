@@ -261,7 +261,7 @@ Main thread should never block. Call placement happens in a daemon thread; resul
 ##### 🎯 Next Steps (Planned Versions)
 
 ###### V1.1 — Polish & UX Refinement
-- [ ] Switch to `customtkinter` for a nicer, modern GUI look
+- [x] Modern GUI look — done via hand-rolled Canvas widgets instead of `customtkinter` (see V1.1 below; keeps zero new dependencies)
 - [ ] Add call history display (last N calls)
 - [ ] Keyboard shortcut to clear/focus the number field
 - [ ] Sound feedback (beep on error, chime on success)
@@ -334,6 +334,149 @@ Estimated total development time: **~2 hours**
 - [E.164 Standard](https://en.wikipedia.org/wiki/E.164)
 - [Tkinter Official Docs](https://docs.python.org/3/library/tkinter.html)
 - [python-dotenv Docs](https://github.com/theskumar/python-dotenv)
+
+---
+
+### V1.1 - Modern Fintech GUI Redesign
+
+#### 🚀 [[Fri 17-Jul 2026]] Reskin the dialer: from "Windows 98" to "Revolut"
+
+Follow-up session focused purely on visual polish. The client's brief was to keep the app lightweight (still a single `python app.py`, no framework migration) but stop it looking like a dated Windows 98 dialog box, and to adopt a fintech-disruptor look — flat dark surfaces, rounded pill controls, one confident brand accent — using `#109dff` as the accent colour throughout.
+
+---
+
+##### 📋 Scope
+
+**In scope:** visual redesign of the existing screen only (banner, number entry, Call button, confirmation step, status feedback).
+**Out of scope:** no changes to `twilio_client.py` call logic, no new features, no new dependencies.
+
+---
+
+##### 🏗️ Architecture Decisions
+
+###### `customtkinter` vs. hand-rolled widgets
+
+V1.0's "Next Steps" flagged `customtkinter` as the likely path to a nicer look. Went a different way instead: a small `ui.py` module of `tkinter.Canvas`-backed widgets (rounded rectangles via `create_polygon(..., smooth=True)`).
+
+**Why not `customtkinter`:** it's an extra third-party dependency for what is otherwise a two-dependency app (`twilio`, `python-dotenv`), and the brief explicitly asked to keep the app lightweight. Stock `Canvas` primitives get the same rounded/flat look with zero new packages — `requirements.txt` is unchanged.
+
+###### New file: `ui.py`
+
+```
+ui.py
+├── Palette constants (ACCENT = #109dff, hover/pressed variants, dark surfaces)
+├── resolve_family() / font()  — picks the best available system font (Segoe UI /
+│                                 SF Pro / Inter / Roboto / DejaVu Sans, in that order)
+├── RoundedButton   — pill button, hover/pressed/disabled states, Canvas-drawn
+├── RoundedEntry    — rounded number field, persistent placeholder, accent focus ring
+├── Pill            — small LIVE / DRY RUN / SETUP status badge
+└── ConfirmDialog / ask_confirm() — themed frameless modal, replaces tk.messagebox
+```
+
+###### `app.py` restructure
+
+Rebuilt as a portrait "card" layout instead of the old top-to-bottom label stack:
+- Header row: accent-coloured monogram badge + "Dialer" title, with the LIVE/DRY RUN/SETUP `Pill` docked top-right.
+- Mode banner (unchanged copy, restyled).
+- Large centred `RoundedEntry` for the number, with a persistent placeholder (`+1 415 555 2671`) that only clears on the user's first keystroke rather than on focus — so the format hint doesn't disappear just because the field auto-focused on launch.
+- Full-width accent `RoundedButton` ("Call" → "Calling…" while a call is in flight, matching the old disabled-during-call behaviour).
+- Status line below, same success/error semantics as before but re-themed (`ui.SUCCESS` / `ui.ERROR` / `ui.ACCENT` instead of the old hard-coded hex constants in `app.py`).
+
+The native `messagebox.askyesno` confirmation was replaced with `ui.ask_confirm()` — a frameless (`overrideredirect`) `Toplevel` centred on the main window, styled to match (dark card, Cancel as a muted pill, Call as the accent pill).
+
+---
+
+##### 🎨 Palette
+
+| Token | Hex | Use |
+|---|---|---|
+| `ACCENT` | `#109dff` | brand accent — button, focus ring, monogram, links |
+| `ACCENT_HOVER` / `ACCENT_PRESSED` | `#38aeff` / `#0d84d9` | button interaction states |
+| `BG` | `#0d0f14` | window background |
+| `SURFACE` / `SURFACE_HI` | `#161a23` / `#20242f` | dialog card / secondary button |
+| `FIELD_BG` | `#1b1f2a` | number entry background |
+| `TEXT` / `TEXT_MUTED` | `#f4f6fb` / `#8b93a7` | primary / secondary text |
+| `SUCCESS` / `ERROR` / `WARN` | `#2ecc8f` / `#ff5c72` / `#ffb547` | status colours |
+
+---
+
+##### 💡 Technical Learnings
+
+###### Rounded rectangles on stock Tkinter
+
+`Canvas.create_polygon()` with `smooth=True` and a 12-point corner-cut path (see `_round_rect_points()` in `ui.py`) draws a convincing rounded rectangle with no image assets and no extra packages — this is the trick that makes the whole reskin possible without leaving stdlib.
+
+###### `create_polygon` needs non-empty initial coords
+
+Calling `create_polygon(())` at construction time (before the widget has a size to compute real coordinates from) raises `IndexError: tuple index out of range` on Python 3.12's Tk binding. Fixed by seeding with placeholder coordinates (`0, 0, 0, 0, 0, 0`) and letting the `<Configure>` handler redraw with real ones.
+
+###### `overrideredirect` Toplevels ignore `winfo_reqwidth()` sizing by default
+
+A frameless confirm dialog sized only via `geometry(f"+{x}+{y}")` (position only) rendered full-screen-wide under a bare X server with no window manager, because nothing constrained its width — it inherited the size of its widest child. Root cause: the custom `RoundedButton` Canvas reports a large default `winfo_reqwidth()` since it has no text-based natural size. Fixed two ways: (1) explicitly `geometry(f"{w}x{h}+{x}+{y}")` including size, and (2) pin each dialog button to a small explicit `width=120` so the grid's `sticky="ew"` weights, not the canvas defaults, decide the layout.
+
+###### Placeholder text vs. autofocus
+
+Clearing placeholder text on `<FocusIn>` looks wrong when the field autofocuses at launch — the hint vanishes before the user has even looked at the screen. Moved the clear-condition to the first real keypress (`<KeyPress>`, filtered to printable `event.char`) instead, so the placeholder survives focus but disappears the instant the user starts typing.
+
+---
+
+##### 🔧 Challenges & Solutions
+
+###### Challenge 1: No display in the dev environment
+
+**Issue:** Needed to visually verify the redesign but the session had no `tkinter` module and no `$DISPLAY`.
+**Solution:** Installed `python3-tk` (via the system's `python3.12`, since the default `python3.11` binary lacked a matching Tk build) plus `xvfb` + `scrot`, then launched the real app headless and screenshotted actual widget states (initial load, typed number, confirm dialog) rather than guessing from code.
+**Learning:** Reskins are easy to get subtly wrong (padding, contrast, a mis-sized modal) without seeing them render — worth the one-time setup cost to screenshot the real thing before calling a GUI change done.
+
+###### Challenge 2: Frameless dialog sizing (see Technical Learnings above)
+
+**Issue:** first screenshot of `ConfirmDialog` showed it stretched across the entire virtual screen.
+**Solution:** explicit dialog `geometry` including size + capped button widths.
+**Learning:** always sanity-check a `Toplevel`'s actual `winfo_geometry()` against what was requested when using `overrideredirect(True)` — it opts out of window-manager-assisted sizing that's normally taken for granted.
+
+---
+
+##### 📝 What Changed (Files)
+
+- **Added** `ui.py` — all new themed widgets (buttons, entry, badge, dialog), palette, font resolution.
+- **Modified** `app.py` — rebuilt `_build_widgets()` around the new widgets; call/status/mode-banner logic unchanged, only how it's rendered.
+- **Unchanged** `twilio_client.py`, `requirements.txt`, `.env.example` — no dependency or call-logic changes.
+
+---
+
+##### ✅ Verification
+
+No UI test suite exists for this project, so verification was manual + headless-visual:
+- `py_compile` clean on both Python 3.11 and 3.12.
+- Launched the real app under Xvfb and screenshotted: initial load (placeholder + focus ring), a typed number, and the confirm dialog.
+- Drove the dry-run call path programmatically end-to-end (`_place_call_worker` → status label → button re-enable) to confirm the new widgets wire up to the unchanged business logic correctly.
+
+---
+
+##### 🎯 Next Steps (Updated)
+
+V1.1's "modern GUI look" goal is done. Remaining V1.1 backlog (call history, keyboard shortcuts, sound feedback) is still open — see the updated checklist above. Two ideas that came out of this session, not yet scoped:
+- [ ] Light-theme variant of the same palette (same `#109dff` accent, white/light-grey surfaces) as a toggle, if BDMs want it.
+- [ ] Reuse `ui.py`'s `RoundedButton`/`Pill` if a future "Call History" screen (V1.3) is built, to keep the look consistent.
+
+---
+
+##### 💭 Reflections
+
+**What went well:** the zero-new-dependencies constraint held — the whole reskin is stdlib `tkinter` plus one new local module. Screenshotting the actual running app (rather than trusting the code by eye) caught two real bugs (empty-polygon crash, oversized frameless dialog) that would otherwise have shipped broken.
+
+**Key takeaway:** for GUI work in an environment without a display, it's worth the ~2 minutes of setup (`python3-tk` + `xvfb` + a screenshot binary) to actually render and inspect the result — "looks right in the diff" is not the same as "looks right on screen," especially for anything involving custom-drawn widgets or window geometry.
+
+---
+
+##### 📊 Time Investment
+
+Estimated total development time: **~1 hour**
+
+- Reading existing `app.py`/`twilio_client.py`, planning the widget set: 0.15 hours
+- Building `ui.py` (rounded button/entry/pill/dialog): 0.35 hours
+- Rebuilding `app.py` layout around the new widgets: 0.15 hours
+- Headless environment setup + screenshot-driven debugging (polygon crash, dialog sizing, placeholder behaviour): 0.35 hours
 
 ---
 
