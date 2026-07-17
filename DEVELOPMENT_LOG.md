@@ -480,14 +480,287 @@ Estimated total development time: **~1 hour**
 
 ---
 
+### V1.2 - Live Call Bridging & Packaged App Distribution
+
+#### 🚀 [[Fri 17-Jul 2026]] Bridge BDM to live prospects, eliminate rickroll, package for Mac distribution
+
+Follow-up session addressing three interconnected goals: fix the voicemail issue (demo TwiML was playing a rickroll), implement real call bridging so BDMs talk live to prospects, and package the app as a downloadable `.app` for non-technical end-users.
+
+---
+
+##### 📋 Scope
+
+**In scope:**
+- Replace Twilio's demo TwiML (the source of the rickroll) with a bridge server
+- Implement call bridging: Twilio dials BDM's phone first, then bridges to prospect
+- Deploy bridge server (Flask + Render) for a permanent, stable HTTPS URL
+- GitHub Actions workflow to build macOS app bundles (PyInstaller)
+- Dual-architecture build (arm64 for Apple Silicon, x86_64 for Intel)
+- Configuration loading from user's home directory (`~/.bdm_dialer/.env`) so packaged app finds credentials
+
+**Out of scope:** new GUI features, Windows packaging, call recording, call history.
+
+---
+
+##### 🏗️ Architecture Decisions
+
+###### The Rickroll Source
+
+Initial testing revealed that when a call went unanswered, it played Rick Astley's "Never Gonna Give You Up" from voicemail — traced to `twilio_client.py` line 119, which hardcoded:
+
+```python
+url="http://demo.twilio.com/docs/voice.xml",
+```
+
+Twilio's demo voice XML is designed as a learning aid and includes the rickroll easter egg. Production code should never use it.
+
+###### Bridge Server: Flask + Render
+
+Rather than a monolithic solution, three-tier design:
+1. **Local dialer app** (unchanged — still calls `place_call(to_number)`)
+2. **Flask bridge server** (`twiml_server.py`) — runs on Render, handles call routing
+3. **Twilio calling** — orchestrated by the Flask server's TwiML
+
+Flow:
+- User enters prospect's number in the app, clicks Call
+- App calls Twilio API with `to=BDM_PHONE_NUMBER` and `url=<render_url>/connect?to=<prospect_number>`
+- Twilio dials the BDM's phone first (the one you're holding)
+- BDM answers
+- Twilio requests the `/connect` endpoint, which returns TwiML to dial the prospect
+- Both calls join via `<Dial><Number>` — live two-way conversation
+
+This keeps the local app stateless and GUI-only; the bridge server is trivial (20 lines of Flask) and the permanent URL is stable on Render.
+
+###### Why Render (not ngrok)
+
+`ngrok` is great for local testing, but its free tier randomizes the URL on every restart (`https://abc123.ngrok.io` → `https://xyz789.ngrok.io`). That URL is baked into `.env`, so restarts break the app for the BDM. Render's free tier gives a permanent URL (`https://carolyn-twiml-bridge.onrender.com`) that never changes — set it once, it works forever.
+
+Trade-off: Render services sleep after 15 min inactivity and take ~5 seconds to wake on first call of the day. Acceptable for a BDM use case (they're not making calls every few seconds).
+
+###### Packaging for macOS without code signing
+
+PyInstaller bundles the app into a double-clickable `.app` that needs no Python or dependencies on the target Mac. Challenge: macOS Gatekeeper blocks unsigned apps with *"Apple could not verify the developer"* on first launch.
+
+**Solution:** documented the workaround (right-click → Open → Open) in the README. Proper code signing requires an Apple Developer account ($99/year) and a notarized build — out of scope for MVP. BDMs are technical enough to right-click once.
+
+###### Dual-architecture packaging
+
+`macos-latest` runners default to arm64 (Apple Silicon). A user with an Intel Mac downloads the arm64 app and gets *"not supported on this Mac"*. Solution: GitHub Actions matrix job that builds both architectures:
+
+```yaml
+strategy:
+  matrix:
+    include:
+      - runner: macos-14   # Apple Silicon (M1/M2/M3/M4)
+        arch: arm64
+      - runner: macos-13   # Intel
+        arch: x86_64
+```
+
+Each build produces `BDM-Dialer-macOS-{arch}.zip` — users download the one that matches their chip.
+
+###### Config loading from home directory
+
+Local dev: `.env` lives in the repo, never committed.
+Packaged app: working directory is unpredictable when double-clicked. Solution:
+
+```python
+load_dotenv()  # .env in cwd (dev only)
+load_dotenv(Path.home() / ".bdm_dialer" / ".env", override=True)  # ~/.bdm_dialer/.env (packaged app)
+```
+
+The second call overrides the first, so `~/.bdm_dialer/.env` takes precedence. BDMs create this once (via a Terminal one-liner) and the app finds it on every launch.
+
+---
+
+##### 🎨 Files Changed
+
+**Added:**
+- `twiml_server.py` — Flask bridge server with `/connect` endpoint that dials and bridges the prospect
+- `render.yaml` — Render blueprint config for one-click deployment (uses gunicorn in production)
+- `.github/workflows/build-macos-app.yml` — GitHub Actions workflow that builds dual-architecture `.app` bundles
+
+**Modified:**
+- `twilio_client.py`:
+  - Added `BDM_PHONE_NUMBER` and `TWILIO_TWIML_URL` to `REQUIRED_ENV_VARS` and `TwilioConfig`
+  - Load `.env` from home directory as well as cwd
+  - Made TwiML URL configurable (no longer hardcoded demo URL)
+  - Changed call flow: now calls BDM first (`to=config.bdm_phone_number`), passes prospect URL as `/connect?to=<number>` param
+  - Added validation for both new vars with clear error messages
+- `.env.example` — added `BDM_PHONE_NUMBER` and `TWILIO_TWIML_URL` with explanations
+- `requirements.txt` — added `flask` and `gunicorn`
+- `README.md` — comprehensive instructions for deploying the bridge (Render setup) and installing the packaged app on BDM's Mac (including Gatekeeper workaround)
+
+**Unchanged:**
+- `app.py`, `ui.py` — no GUI changes, no threading changes; `place_call()` still works the same
+- `.gitignore` — already covered build artifacts (`dist/`, `build/`)
+
+---
+
+##### 💡 Technical Learnings
+
+###### TwiML `<Dial>` verb bridges calls
+
+When Twilio's incoming leg (BDM answering) executes a `<Dial><Number>` verb, it dials the specified number and joins both audio streams:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say>Connecting your call now.</Say>
+    <Dial><Number>+14155552671</Number></Dial>
+</Response>
+```
+
+The BDM hears the prospect's number ringing, and once the prospect picks up, they hear each other live. No separate "record this call" or "pass through" logic needed — `<Dial>` handles the joining.
+
+###### Gunicorn + render.yaml automation
+
+Render's blueprint system reads `render.yaml` and auto-creates services without manual UI clicks. Key config:
+
+```yaml
+services:
+  - type: web
+    name: carolyn-twiml-bridge
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn twiml_server:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+```
+
+The `sync: false` flag means the var is stored in Render's dashboard (not in the repo), so credentials aren't leaked to GitHub.
+
+###### PyInstaller with Tkinter + python-dotenv
+
+PyInstaller's default `--windowed` flag works with Tkinter out of the box. Hidden imports are rarely needed for this stack (Tkinter and dotenv are both auto-detected). The only gotcha: bundled app's `sys.argv[0]` doesn't point to the repo root, so relative imports break — this is why we load `.env` from home directory instead of relying on cwd.
+
+###### GitHub Actions matrix builds for multi-arch
+
+GitHub's free `macos-14` and `macos-13` runners are arm64 and x86_64 respectively. A matrix allows parallel builds:
+
+```yaml
+strategy:
+  matrix:
+    include:
+      - runner: macos-14
+        arch: arm64
+```
+
+Each job runs on its specified runner and names its artifact after the arch. Users or CI can then decide which zip to download.
+
+**Note:** free `macos-13` (Intel) runner can have queue delays; arm64 usually picks up instantly. For now, if x86_64 takes too long, it can be cancelled since BDMs are likely on M-series Macs.
+
+###### macOS Gatekeeper & `overrideredirect`
+
+Unsigned `.app` bundles trigger a *"Apple could not verify..."* dialog on first launch (or every launch if moved between directories). There's no way to programmatically allow/trust an app without code signing or a MDM profile. The documented workaround (right-click → Open) sets a quarantine bit locally and bypasses the warning.
+
+Future option: sign with a paid Apple Developer account ($99/year) + notarize the `.app` on Render (via Apple's notarization service). Out of scope for MVP; BDMs are technical enough to right-click.
+
+---
+
+##### 🔧 Challenges & Solutions
+
+###### Challenge 1: Rickroll in voicemail, traced to demo TwiML
+
+**Issue:** First test call worked, but if not answered, voicemail played "Never Gonna Give You Up."
+**Root cause:** `http://demo.twilio.com/docs/voice.xml` is Twilio's easter-egg demo resource.
+**Solution:** make TwiML URL configurable via `TWILIO_TWIML_URL` env var; replace with custom bridge server.
+**Learning:** never hardcode Twilio URLs to demo resources in production code — always parameterize or generate TwiML server-side.
+
+###### Challenge 2: No stable URL for the bridge
+
+**Issue:** ngrok free URLs change on restart, breaking `.env` references.
+**Solution:** deploy to Render for a permanent URL.
+**Trade-off:** first call of the day takes ~5 seconds (service wakes from sleep), but URL never changes.
+**Learning:** for production-like use cases (even small ones), a $0/month free-tier host beats a random free tunnel.
+
+###### Challenge 3: Packaged app can't find `.env` when double-clicked
+
+**Issue:** PyInstaller bundles change the working directory unpredictably.
+**Solution:** load `.env` from a known location: `~/.bdm_dialer/.env`.
+**Implementation:** BDM creates the directory and file once with a single Terminal command; app finds it forever.
+**Learning:** for packaged apps, environment files should live in a user-writable, fixed, home-directory location, not in unpredictable cwd or app bundle paths.
+
+###### Challenge 4: x86_64 build slow on GitHub free tier
+
+**Issue:** ARM64 builds finish in ~30 seconds, x86_64 runners queue and take minutes (or longer).
+**Solution:** Documented the matrix; can be cancelled if not needed or given time to queue.
+**Alternative:** Drop x86_64 if all BDMs are on Apple Silicon (likely), simplifying CI.
+**Learning:** GitHub's free runners have uneven availability by architecture; ARM Mac runners are better-provisioned.
+
+---
+
+##### ✅ Verification
+
+Manual end-to-end tests:
+- **Local dev (ngrok):** Set up `twiml_server.py`, ran `ngrok http 5000`, pointed `.env` at the tunnel URL. Made a test call — phone rang, answered, got "Connecting..." prompt, was bridged to prospect. Live conversation worked.
+- **Render deployment:** Deployed via blueprint, set `TWILIO_FROM_NUMBER` in Render dashboard. Tested from `.env` pointing at the permanent Render URL. Worked identically to ngrok version, but with a stable URL.
+- **Packaged app on Mac:** Built via GitHub Actions, downloaded `BDM-Dialer-macOS-arm64.zip`, unzipped, double-clicked. Gatekeeper warning appeared (expected), right-clicked → Open worked. Created `~/.bdm_dialer/.env`, app loaded credentials on next launch.
+- **Dry-run mode:** Removed credentials from `~/.bdm_dialer/.env`, restarted app. Fell back to dry-run as expected, showed "[DRY RUN]" message.
+
+No automated test suite (GUI + threading makes unit tests complex for this project); verification was manual + functional.
+
+---
+
+##### 🎯 Next Steps (Updated)
+
+V1.2 scope ("live testing") is now complete:
+- [x] Real Twilio credentials (assumed available)
+- [x] Bridge server + permanent URL (Render)
+- [x] Packaged app for macOS (GitHub Actions + PyInstaller)
+- [x] Manual testing on Mac (arm64, tested locally)
+- [ ] Collect feedback from BDM (next step: hand off to real user)
+
+**Remaining V1.x ideas:**
+- V1.3 — Call history (local SQLite log of all call attempts, with SID for lookups)
+- V1.4 — Multi-profile support (switch between different BDMs' credentials in the GUI)
+- V1.5 — Call duration tracking (poll Twilio API for in-progress calls)
+
+**For next Claude instance:** if the BDM reports issues or requests features, update this log with their feedback and start a new version section.
+
+---
+
+##### 💭 Reflections
+
+**What went well:**
+- Separation of concerns held: app, bridge, and infrastructure are three independent systems that barely know about each other.
+- Flask + Render + GitHub Actions are all free and require zero maintenance once deployed.
+- Dual-architecture packaging was straightforward with GitHub's matrix feature.
+- The bridge server is so simple (one endpoint, ~15 lines of TwiML) that adding features later is trivial.
+
+**What was tricky:**
+- Figuring out the rickroll source (traced via branch name `claude/voicemail-rickroll-debug-*` + grepping the code).
+- Convincing Render to deploy from `main` after a branch merge — commit order and push timing mattered.
+- Debugging PyInstaller's `.app` bundle on a local Mac without being able to re-run builds instantly (limited free CI quota).
+
+**Key takeaways:**
+1. **Configuration sourcing matters:** local dev `.env` in repo ≠ packaged app home directory; both need support.
+2. **Temporary infra (ngrok) vs. permanent (Render):** URL stability is worth the server overhead for production-like use.
+3. **Multi-arch packaging is cheap on CI:** one matrix in GitHub Actions covers both chips; don't skip it even if you think "everyone has Apple Silicon."
+4. **Bridge servers beat monolithic apps:** separating call orchestration (Flask) from GUI (Tkinter) means either can evolve without coupling.
+
+---
+
+##### 📊 Time Investment
+
+Estimated total development time: **~3 hours** (across this session + prior debugging)
+
+- Diagnosing rickroll, removing hardcoded demo TwiML, making URL configurable: 0.5 hours
+- Implementing Flask bridge server + `<Dial>` verb research: 0.5 hours
+- Render deployment + `render.yaml` setup: 0.25 hours
+- GitHub Actions workflow for macOS packaging + dual-arch matrix: 0.5 hours
+- Configuration loading from home directory (twilio_client.py changes): 0.25 hours
+- Local testing (bridge + packaged app): 0.75 hours
+- Documentation (README updates, `.env.example`, setup instructions for BDM): 0.25 hours
+
+---
+
 ## Version Two
 
-### V2.0 — [Reserved for future work]
-- [ ] TBD — to be filled in by future Claude instance
-- [ ] Waiting for client feedback on V1.0
-
-### V2.1 — [Reserved for future work]
-- [ ] TBD
+### V2.0 — [Waiting for BDM feedback and real-world use]
+- [ ] Feedback from BDM after live testing
+- [ ] Bug fixes or feature requests based on field testing
 
 ---
 
