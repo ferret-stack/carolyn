@@ -7,11 +7,24 @@ number. It runs entirely on your own computer — no server, no login.
 
 1. Install Python 3.10 or later if you don't already have it:
    https://www.python.org/downloads/
-2. Open a terminal in this folder and install the dependencies:
+2. Open a terminal in this folder and install the dependencies. macOS doesn't
+   ship a plain `pip`/`python` command — use `pip3`/`python3` (or
+   `python3 -m pip`) instead:
 
    ```
-   pip install -r requirements.txt
+   python3 -m pip install -r requirements.txt
    ```
+
+   If that fails with `error: externally-managed-environment` (Python 3.12+
+   on Homebrew), and you don't want to set up a virtual environment, add
+   `--break-system-packages`:
+
+   ```
+   python3 -m pip install -r requirements.txt --break-system-packages
+   ```
+
+   If launching the app later fails with `No module named '_tkinter'`
+   (Homebrew Python only), run `brew install python-tk`.
 
 3. Copy `.env.example` to a new file named `.env` in the same folder.
 4. Fill in your Twilio values in `.env` (ask your admin for these):
@@ -43,7 +56,7 @@ this. For local testing, you can instead run it on your own machine and
 expose it with a tunnel:
 
 ```
-python twiml_server.py
+python3 twiml_server.py
 ```
 
 In another terminal:
@@ -97,13 +110,24 @@ on the first call of the day — normal, not a bug.
    - Save and close.
 4. Double-click `BDM Dialer.app`. macOS will likely block it with an
    *"Apple could not verify..."* warning since it isn't signed by a paid
-   Apple Developer account — **right-click the app > Open > Open** to
-   bypass this once. After that it opens normally.
+   Apple Developer account.
+   - **On macOS Sequoia (15) and later**, right-click > Open no longer
+     offers a bypass. Instead: after the first blocked attempt, go to
+     **System Settings > Privacy & Security**, scroll to the bottom, and
+     click **Open Anyway** next to the notice about the app.
+   - **On older macOS**, right-click the app > Open > Open still works.
+   - **Fastest option on any version:** open Terminal and run (adjust the
+     path if the app isn't in Downloads):
+     ```
+     xattr -cr ~/Downloads/"BDM Dialer.app"
+     ```
+     This removes the quarantine flag that triggers the warning, so the
+     app opens normally from then on.
 
 ## Running the app (from source)
 
 ```
-python app.py
+python3 app.py
 ```
 
 Enter a phone number in international format (e.g. `+14155552671`), click
