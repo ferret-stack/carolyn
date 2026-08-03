@@ -30,8 +30,8 @@ def connect():
         return Response(str(response), mimetype="application/xml")
 
     response.say("Connecting your call now.")
-    from_number = os.getenv("TWILIO_FROM_NUMBER")
-    dial = Dial(caller_id=from_number) if from_number else Dial()
+    caller_id = request.values.get("caller_id", "").strip() or os.getenv("TWILIO_FROM_NUMBER")
+    dial = Dial(caller_id=caller_id) if caller_id else Dial()
     dial.number(to_number)
     response.append(dial)
     return Response(str(response), mimetype="application/xml")

@@ -34,6 +34,7 @@ REQUIRED_ENV_VARS = [
     "TWILIO_API_KEY_SID",
     "TWILIO_API_KEY_SECRET",
     "TWILIO_FROM_NUMBER",
+    "TWILIO_CALLER_ID",
     "BDM_PHONE_NUMBER",
     "TWILIO_TWIML_URL",
 ]
@@ -49,6 +50,7 @@ class TwilioConfig:
     api_key_sid: Optional[str]
     api_key_secret: Optional[str]
     from_number: Optional[str]
+    caller_id: Optional[str]
     bdm_phone_number: Optional[str]
     twiml_url: Optional[str]
     dry_run: bool
@@ -76,6 +78,7 @@ def load_config() -> TwilioConfig:
         api_key_sid=values["TWILIO_API_KEY_SID"],
         api_key_secret=values["TWILIO_API_KEY_SECRET"],
         from_number=values["TWILIO_FROM_NUMBER"],
+        caller_id=values["TWILIO_CALLER_ID"],
         bdm_phone_number=values["BDM_PHONE_NUMBER"],
         twiml_url=values["TWILIO_TWIML_URL"],
         dry_run=forced_dry_run or explicit_dry_run,
@@ -140,7 +143,10 @@ def _place_call_live(to_number: str, config: TwilioConfig) -> CallResult:
         )
 
     client = Client(config.api_key_sid, config.api_key_secret, config.account_sid)
-    connect_url = f"{config.twiml_url.rstrip('/')}/connect?to={quote(to_number)}"
+    connect_url = (
+        f"{config.twiml_url.rstrip('/')}/connect"
+        f"?to={quote(to_number)}&caller_id={quote(config.caller_id)}"
+    )
 
     try:
         # Call the BDM first. Once they pick up, the /connect TwiML dials the
