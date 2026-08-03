@@ -21,9 +21,16 @@ number. It runs entirely on your own computer — no server, no login.
    TWILIO_API_KEY_SID=
    TWILIO_API_KEY_SECRET=
    TWILIO_FROM_NUMBER=
+   TWILIO_CALLER_ID=
    BDM_PHONE_NUMBER=
    TWILIO_TWIML_URL=
    ```
+
+   `TWILIO_CALLER_ID` is this BDM's own HubSpot number — it must already be
+   verified in the Twilio Console under **Verified Caller IDs** before use.
+   It's shown to the prospect as caller ID; it is not the same as
+   `TWILIO_FROM_NUMBER`, which must stay the shared, Twilio-owned number
+   used to ring the BDM.
 
    No `.env`, or one with values still missing? That's fine — the app runs
    in **dry-run mode**: you can try the screen, the number validation, and
@@ -91,10 +98,12 @@ on the first call of the day — normal, not a bug.
      TWILIO_API_KEY_SID=
      TWILIO_API_KEY_SECRET=
      TWILIO_FROM_NUMBER=
+     TWILIO_CALLER_ID=      # this BDM's verified HubSpot number (not the Twilio number)
      BDM_PHONE_NUMBER=      # the BDM's own phone number, e.g. +14155552671
      TWILIO_TWIML_URL=      # the permanent Render URL from above
      ```
-   - Save and close.
+   - Save and close. `TWILIO_CALLER_ID` must already be verified in the
+     Twilio Console under **Verified Caller IDs** before this BDM can use it.
 4. Double-click `BDM Dialer.app`. macOS will likely block it with an
    *"Apple could not verify..."* warning since it isn't signed by a paid
    Apple Developer account — **right-click the app > Open > Open** to
