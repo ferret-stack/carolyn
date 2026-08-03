@@ -758,9 +758,115 @@ Estimated total development time: **~3 hours** (across this session + prior debu
 
 ## Version Two
 
-### V2.0 — [Waiting for BDM feedback and real-world use]
-- [ ] Feedback from BDM after live testing
-- [ ] Bug fixes or feature requests based on field testing
+### V2.0 - Per-BDM Caller ID
+
+#### 🚀 [[Mon 3-Aug 2026]] Show the BDM's own HubSpot number to prospects, not the shared Twilio number
+
+First piece of real-world feedback from the field: HubSpot already routes inbound callbacks to the right BDM, but outbound calls all showed the same shared Twilio number to the prospect, so a prospect calling back couldn't be routed to the BDM who'd called them. Fix was to make the caller ID shown on the *prospect's* leg configurable per-BDM, separate from the number used to ring the BDM's own phone.
+
+---
+
+##### 📋 Scope
+
+**In scope:** outbound caller ID on the bridge leg only (the `<Dial>` that reaches the prospect).
+**Out of scope:** inbound routing (already solved by HubSpot), how the BDM's own phone is dialed, new dependencies.
+
+**Critical distinction, kept separate end to end:**
+- `TWILIO_FROM_NUMBER` — stays the real Twilio-owned number, used to originate the call to the BDM's own phone (`client.calls.create(from_=...)`). Must never be a verified-but-unowned number, or leg 1 (ringing the BDM) breaks.
+- `TWILIO_CALLER_ID` (new) — the BDM's verified HubSpot number. Used only on the prospect-facing `<Dial>` leg.
+
+---
+
+##### 🏗️ Architecture Decisions
+
+###### Pass caller ID through the `/connect` query string, not a server-wide env var
+
+`twiml_server.py`'s bridge is a single shared deployment (Render), but caller ID needs to differ per BDM/per call. Rather than deploying one bridge server per BDM, `twilio_client.py` now appends `caller_id` to the `/connect` URL it builds for each call, and the Flask route reads it per-request:
+
+```python
+# twilio_client.py — _place_call_live()
+connect_url = (
+    f"{config.twiml_url.rstrip('/')}/connect"
+    f"?to={quote(to_number)}&caller_id={quote(config.caller_id)}"
+)
+```
+
+```python
+# twiml_server.py — /connect
+caller_id = request.values.get("caller_id", "").strip() or os.getenv("TWILIO_FROM_NUMBER")
+dial = Dial(caller_id=caller_id) if caller_id else Dial()
+```
+
+The `os.getenv("TWILIO_FROM_NUMBER")` fallback keeps old `.env` files (pre-upgrade, no `TWILIO_CALLER_ID` set on the bridge server) working exactly as before — one shared bridge deployment now serves every BDM's distinct caller ID with no per-BDM server-side config.
+
+###### `TWILIO_CALLER_ID` required, `dry_run` enforces it for free
+
+Added to `REQUIRED_ENV_VARS` alongside the others — `load_config()`'s existing missing-var handling means a `.env` without it just falls into dry-run mode automatically, no special-casing needed.
+
+---
+
+##### 🎨 Files Changed
+
+**Modified:**
+- `twilio_client.py` — `TWILIO_CALLER_ID` added to `REQUIRED_ENV_VARS` and `TwilioConfig`; `_place_call_live()` appends `caller_id` to the `/connect` query string. `from_number`/`from_=` (leg 1, ringing the BDM) untouched.
+- `twiml_server.py` — `/connect` reads `caller_id` from the request first, falling back to the server's `TWILIO_FROM_NUMBER` env var if absent.
+- `.env.example` — added `TWILIO_CALLER_ID` with a comment distinguishing it from `TWILIO_FROM_NUMBER`.
+- `README.md` — both credential blocks (source-run `.env` and packaged-app `~/.bdm_dialer/.env`) updated with `TWILIO_CALLER_ID`, noting it must already be verified in the Twilio Console under **Verified Caller IDs** before use.
+
+**Unchanged:** `app.py`, `ui.py` — no GUI changes; this is entirely a `twilio_client.py`/`twiml_server.py`/config change.
+
+---
+
+##### 🔧 Challenges & Solutions
+
+###### Challenge 1: Live test still showed the shared Twilio number after the code change
+
+**Issue:** BDM set `TWILIO_CALLER_ID` locally, made a test call — their own phone rang correctly from the shared Twilio number, but the prospect still saw the shared Twilio number instead of the verified HubSpot number.
+**Root cause:** `TWILIO_TWIML_URL` points at a separately deployed instance of `twiml_server.py` on Render, which deploys from `main` — not from the local checkout or the feature branch the code change shipped on. Twilio was calling back into the *old* `/connect` code (`caller_id = os.getenv("TWILIO_FROM_NUMBER")`, no query-string awareness at all), so the new `caller_id` param was silently ignored server-side.
+**Fix:** merge the feature branch to whatever branch Render deploys from and trigger a redeploy — no code or `.env` change needed, the local config was already correct.
+**Learning:** for this project, "the code is right locally" and "the code is live" are two different facts whenever `twiml_server.py` is involved — it runs on a separate Render deployment with its own deploy trigger (push to `main`), completely independent of what the dialer app itself is running. Worth checking Render's deployed commit whenever a bridge-side behavior change doesn't show up in a live test.
+
+---
+
+##### ✅ Verification
+
+- Confirmed `load_config()` forces dry-run when `TWILIO_CALLER_ID` is unset (shows up in `missing_vars`), and clears once set — enforced generically via the existing missing-var mechanism, no special-casing needed.
+- Confirmed the generated `/connect` URL carries both `to` and `caller_id` query params correctly.
+- Live test (BDM, first attempt): leg 1 (own phone, from shared Twilio number) worked correctly; leg 2 (prospect) showed the shared Twilio number instead of the HubSpot number — traced to the Render deployment running stale code (see Challenge 1). Redeploy needed before re-testing leg 2 and the inbound-callback sanity check.
+
+---
+
+##### 🎯 Next Steps (Updated)
+
+- [ ] Merge this branch to the branch Render deploys from and trigger/confirm redeploy
+- [ ] Re-run the live test: confirm prospect sees the HubSpot number, BDM's own phone still rings from the shared Twilio number
+- [ ] Sanity-check that a callback to the HubSpot number still reaches the BDM via HubSpot's inbound routing (should be unaffected, but this is the whole point of the change)
+- [ ] Roll out per-BDM `.env` updates (`TWILIO_CALLER_ID=<that BDM's verified HubSpot number>`) to each BDM, keeping `TWILIO_FROM_NUMBER` unchanged for all of them
+
+---
+
+##### 💭 Reflections
+
+**What went well:** the `TwilioConfig`/`REQUIRED_ENV_VARS`/dry-run machinery from V1.0 made this a clean, low-risk addition — no new failure modes to design for, missing-var handling was already generic.
+
+**Key takeaway:** this project's split between "local dialer app" and "hosted bridge server" (introduced in V1.2) means any change to `twiml_server.py` has a deploy step that's easy to forget mid-testing — the first live-test failure here wasn't a code bug, it was a stale deployment. Worth calling out explicitly to whoever tests bridge-side changes next.
+
+---
+
+##### 📊 Time Investment
+
+Estimated total development time: **~0.75 hours**
+
+- Code changes (`twilio_client.py`, `twiml_server.py`, `.env.example`, `README.md`): 0.4 hours
+- Local verification (dry-run enforcement, connect URL construction): 0.1 hours
+- Diagnosing the live-test discrepancy (stale Render deployment): 0.25 hours
+
+---
+
+## Version Three
+
+### V3.0 — [Reserved for future work]
+- [ ] TBD
 
 ---
 
