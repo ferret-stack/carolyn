@@ -758,9 +758,20 @@ Estimated total development time: **~3 hours** (across this session + prior debu
 
 ## Version Two
 
-### V2.0 — [Waiting for BDM feedback and real-world use]
-- [ ] Feedback from BDM after live testing
-- [ ] Bug fixes or feature requests based on field testing
+### V2.0 — First BDM Field Feedback
+
+#### 🚀 [[Mon 03-Aug 2026]] Fix: can't swap to a new number once a call is connected
+
+**Report:** BDM said they were unable to delete/replace the number in the dialer after a call connected.
+
+**Root cause:** `RoundedEntry`'s Enter-key handler (`on_return`) was hardcoded at construction time to `_on_call_clicked`, and never updated when the Call button flips to "End Call" on connect. So typing a replacement number and hitting Enter mid-call didn't hang up — it fired a second `place_call()` (still dialing `BDM_PHONE_NUMBER`, now already on the line) without checking `current_call_sid`. On that second attempt's success/failure callback, `current_call_sid` got silently overwritten/cleared, orphaning the original still-live call: the app lost the SID needed to end it, while the button reset to idle "Call" as if nothing were happening. The number field itself was never actually locked — clicking "End Call" directly always worked correctly; only the Enter shortcut ignored call state.
+
+**Fix (`app.py`):** added `_on_entry_return()`, which dispatches to `_on_end_call_clicked()` when `current_call_sid` is set, or `_on_call_clicked()` otherwise — mirroring exactly what the visible button does. `RoundedEntry`'s `on_return` now points at this dispatcher instead of the old hardcoded call handler. Enter now always matches the button: end the current call first (number stays in the field), then Enter/Call again to dial the replacement.
+
+**Verification:** headless Xvfb + `python3-tk`, drove the real `DialerApp` widgets programmatically (typed a number, connected a dry-run call, deleted and retyped a replacement number, then sent a real `<Return>` key event). Before the fix, `current_call_sid` was clobbered by the stray second call. After the fix, `<Return>` correctly routes to the end-call flow ("Ending…" state), leaving the replacement number intact in the field for the next dial.
+
+- [x] Fix Enter-key handling ignoring active-call state (this session)
+- [ ] Collect further BDM feedback after this fix ships
 
 ---
 

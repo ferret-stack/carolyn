@@ -79,7 +79,7 @@ class DialerApp(tk.Tk):
             outer,
             placeholder="+1 415 555 2671",
             font_spec=ui.font(self, 19),
-            on_return=self._on_call_clicked,
+            on_return=self._on_entry_return,
         )
         self.number_entry.pack(fill="x")
         self.number_entry.focus()
@@ -145,6 +145,17 @@ class DialerApp(tk.Tk):
             )
 
     # -- actions --------------------------------------------------------------
+    def _on_entry_return(self):
+        # Enter in the number field must match whatever the Call/End Call
+        # button currently does. Previously this was hardcoded to always
+        # place a call, so replacing the number after a call connected and
+        # hitting Enter fired a second, unwanted call instead of hanging up
+        # the first — silently orphaning the connected call's SID.
+        if self.current_call_sid:
+            self._on_end_call_clicked()
+        else:
+            self._on_call_clicked()
+
     def _on_call_clicked(self):
         number = self.number_entry.value()
 
