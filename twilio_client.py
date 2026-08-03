@@ -161,3 +161,35 @@ def _place_call_live(to_number: str, config: TwilioConfig) -> CallResult:
         call_sid=call.sid,
         dry_run=False,
     )
+
+
+def end_call(call_sid: str, config: Optional[TwilioConfig] = None) -> CallResult:
+    """End an in-progress call by SID (real or dry-run).
+
+    Raises CallError if the live hangup request fails.
+    """
+    if config is None:
+        config = load_config()
+
+    if config.dry_run or call_sid == "DRY-RUN-NO-SID":
+        return CallResult(
+            success=True,
+            message="[DRY RUN] Call ended. No real call was in progress.",
+            call_sid=call_sid,
+            dry_run=True,
+        )
+
+    from twilio.base.exceptions import TwilioException
+    from twilio.rest import Client
+
+    client = Client(config.api_key_sid, config.api_key_secret, config.account_sid)
+
+    try:
+        # Setting status to "completed" hangs up both legs of the bridged call.
+        client.calls(call_sid).update(status="completed")
+    except TwilioException as exc:
+        raise CallError(f"Twilio API error: {exc}") from exc
+    except Exception as exc:
+        raise CallError(f"Unexpected error ending call: {exc}") from exc
+
+    return CallResult(success=True, message="Call ended.", call_sid=call_sid, dry_run=False)

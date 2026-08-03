@@ -27,6 +27,8 @@ TEXT_ON_ACCENT = "#ffffff"
 
 SUCCESS = "#2ecc8f"
 ERROR = "#ff5c72"
+ERROR_HOVER = "#ff7a8d"
+ERROR_PRESSED = "#e14d62"
 WARN = "#ffb547"
 
 # Preferred font families, best first. The first one actually installed wins,
@@ -182,6 +184,15 @@ class RoundedButton(tk.Canvas):
 
     def set_text(self, text: str):
         self._text = text
+        self._redraw()
+
+    def set_command(self, command):
+        self._command = command
+
+    def set_colors(self, bg, hover_bg, pressed_bg):
+        self._bg = bg
+        self._hover_bg = hover_bg
+        self._pressed_bg = pressed_bg
         self._redraw()
 
 

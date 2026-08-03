@@ -9,7 +9,7 @@ import threading
 import tkinter as tk
 
 import ui
-from twilio_client import CallError, is_valid_e164, load_config, place_call
+from twilio_client import CallError, end_call, is_valid_e164, load_config, place_call
 
 APP_TITLE = "BDM Dialer"
 
@@ -23,6 +23,7 @@ class DialerApp(tk.Tk):
         self.configure(bg=ui.BG)
 
         self.config_state = load_config()
+        self.current_call_sid = None
 
         self._build_widgets()
         self._show_config_banner()
@@ -180,16 +181,65 @@ class DialerApp(tk.Tk):
             self.after(0, self._on_call_success, result)
 
     def _on_call_success(self, result):
-        self._set_calling_state(False)
+        self._set_active_call_state(result.call_sid)
         self._set_status(result.message, ui.SUCCESS)
 
     def _on_call_error(self, message: str):
-        self._set_calling_state(False)
+        self._reset_call_state()
+        self._set_status(message, ui.ERROR)
+
+    def _on_end_call_clicked(self):
+        call_sid = self.current_call_sid
+        if not call_sid:
+            return
+
+        if not ui.ask_confirm(self, "End call", "End the current call?", confirm_text="End Call"):
+            return
+
+        self.call_button.set_enabled(False)
+        self.call_button.set_text("Ending…")
+        self._set_status("Ending call…", ui.ACCENT)
+
+        thread = threading.Thread(target=self._end_call_worker, args=(call_sid,), daemon=True)
+        thread.start()
+
+    def _end_call_worker(self, call_sid: str):
+        try:
+            result = end_call(call_sid, config=self.config_state)
+        except CallError as exc:
+            self.after(0, self._on_end_call_error, str(exc))
+        except Exception as exc:  # noqa: BLE001 - last-resort guard so the GUI never crashes
+            self.after(0, self._on_end_call_error, f"Unexpected error: {exc}")
+        else:
+            self.after(0, self._on_end_call_success, result)
+
+    def _on_end_call_success(self, result):
+        self._reset_call_state()
+        self._set_status(result.message, ui.SUCCESS)
+
+    def _on_end_call_error(self, message: str):
+        # Keep the End Call button up so the user can retry the hangup.
+        self.call_button.set_enabled(True)
+        self.call_button.set_text("End Call")
         self._set_status(message, ui.ERROR)
 
     def _set_calling_state(self, calling: bool):
         self.call_button.set_enabled(not calling)
         self.call_button.set_text("Calling…" if calling else "Call")
+
+    def _set_active_call_state(self, call_sid):
+        self.current_call_sid = call_sid
+        self.call_button.set_command(self._on_end_call_clicked)
+        self.call_button.set_colors(ui.ERROR, ui.ERROR_HOVER, ui.ERROR_PRESSED)
+        self.call_button.set_enabled(True)
+        self.call_button.set_text("End Call")
+
+    def _reset_call_state(self):
+        self.current_call_sid = None
+        self.call_button.set_command(self._on_call_clicked)
+        self.call_button.set_colors(ui.ACCENT, ui.ACCENT_HOVER, ui.ACCENT_PRESSED)
+        self.call_button.set_enabled(True)
+        self.call_button.set_text("Call")
 
     def _set_status(self, text: str, color: str):
         self.status_label.config(text=text, fg=color)
