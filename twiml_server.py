@@ -21,7 +21,7 @@ app = Flask(__name__)
 @app.route("/connect", methods=["GET", "POST"])
 def connect():
     """TwiML for the BDM's leg: announce, then dial and bridge the prospect."""
-    to_number = request.values.get("to", "").strip()
+    to_number = "".join(request.values.get("to", "").split())
 
     response = VoiceResponse()
     if not to_number or not is_valid_e164(to_number):

@@ -146,7 +146,7 @@ class DialerApp(tk.Tk):
 
     # -- actions --------------------------------------------------------------
     def _on_call_clicked(self):
-        number = self.number_entry.value()
+        number = "".join(self.number_entry.value().split())
 
         if not number:
             self._set_status("Enter a phone number first.", ui.ERROR)

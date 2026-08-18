@@ -99,7 +99,7 @@ def place_call(to_number: str, config: Optional[TwilioConfig] = None) -> CallRes
     if config is None:
         config = load_config()
 
-    to_number = to_number.strip()
+    to_number = "".join(to_number.split())
     if not is_valid_e164(to_number):
         raise CallError(f"'{to_number}' is not a valid E.164 phone number (e.g. +14155552671).")
 
