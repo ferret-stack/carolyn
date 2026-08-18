@@ -146,7 +146,7 @@ class DialerApp(tk.Tk):
 
     # -- actions --------------------------------------------------------------
     def _on_call_clicked(self):
-        number = self.number_entry.value()
+        number = "".join(self.number_entry.value().split())
 
         if not number:
             self._set_status("Enter a phone number first.", ui.ERROR)
@@ -158,10 +158,6 @@ class DialerApp(tk.Tk):
                 "e.g. +14155552671.",
                 ui.ERROR,
             )
-            return
-
-        if not ui.ask_confirm(self, "Confirm call", f"Place a call to {number}?"):
-            self._set_status("Call cancelled.", ui.TEXT_MUTED)
             return
 
         self._set_calling_state(True)
@@ -191,9 +187,6 @@ class DialerApp(tk.Tk):
     def _on_end_call_clicked(self):
         call_sid = self.current_call_sid
         if not call_sid:
-            return
-
-        if not ui.ask_confirm(self, "End call", "End the current call?", confirm_text="End Call"):
             return
 
         self.call_button.set_enabled(False)
