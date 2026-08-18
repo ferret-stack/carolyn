@@ -160,10 +160,6 @@ class DialerApp(tk.Tk):
             )
             return
 
-        if not ui.ask_confirm(self, "Confirm call", f"Place a call to {number}?"):
-            self._set_status("Call cancelled.", ui.TEXT_MUTED)
-            return
-
         self._set_calling_state(True)
         self._set_status(f"Calling {number}…", ui.ACCENT)
 
@@ -191,9 +187,6 @@ class DialerApp(tk.Tk):
     def _on_end_call_clicked(self):
         call_sid = self.current_call_sid
         if not call_sid:
-            return
-
-        if not ui.ask_confirm(self, "End call", "End the current call?", confirm_text="End Call"):
             return
 
         self.call_button.set_enabled(False)
