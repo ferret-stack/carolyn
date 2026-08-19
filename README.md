@@ -81,6 +81,49 @@ somewhere permanent so its URL never changes:
 Free Render services sleep after inactivity and take a few seconds to wake
 on the first call of the day — normal, not a bug.
 
+## Enabling inbound calls to a BDM's Twilio number (do this once per number, as the admin)
+
+By default a Twilio number only handles outbound calls placed through this
+app — it won't ring anywhere on its own for an inbound call (including
+WhatsApp Business's automated verification call) until you point it at a
+webhook. Do this in the Twilio Console for **each** BDM's number:
+
+1. Deploy/confirm the bridge server first (see **Deploying the bridge
+   server** above) — inbound needs `/incoming` reachable at the same
+   `TWILIO_TWIML_URL`.
+2. On the Render service, add/update the **`INBOUND_ROUTING_MAP`**
+   environment variable — one JSON object mapping every BDM's Twilio
+   number to their personal phone (Render is a single shared server for
+   all BDMs, so it needs this to know who to ring):
+   ```json
+   {"+15551234567": "+15559876543", "+15551110000": "+15552223333"}
+   ```
+   Add a new entry here whenever a BDM gets a new/replacement Twilio
+   number — no code change or redeploy needed for that, just update this
+   variable and save (Render restarts the service automatically).
+3. In the Twilio Console: **Phone Numbers > Manage > Active Numbers**,
+   click the BDM's number.
+4. Under **Voice Configuration**, set **"A call comes in"** to
+   **Webhook**, HTTP method **POST**, and the URL to
+   `https://<your-twiml-url>/incoming` (e.g.
+   `https://carolyn-twiml-bridge.onrender.com/incoming`).
+5. Save. Call the BDM's Twilio number from any phone to confirm it rings
+   the right BDM's own phone.
+
+If a newly purchased number was created to replace a failed purchase,
+double-check two things that commonly go wrong on re-purchase and will
+also break outbound (silent drop right after the BDM answers):
+
+- The number is voice-capable and **Active**, not still provisioning or
+  SMS/MMS-only.
+- The number is in the **same Twilio account/subaccount** that
+  `TWILIO_ACCOUNT_SID` and the API key in `.env` authenticate against —
+  numbers bought under a different subaccount will look fine in the
+  Console but can't be used as `TWILIO_CALLER_ID` by this app.
+
+See Twilio's own troubleshooting guide if calls still don't come through:
+https://help.twilio.com/articles/223135027
+
 ## Installing the app on the BDM's Mac (no Python required)
 
 1. On this repo's GitHub page: **Actions** tab > **Build macOS App** >
