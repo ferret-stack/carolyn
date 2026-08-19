@@ -49,6 +49,13 @@ def _bdm_number_for(called_number: str) -> str:
     return os.getenv("BDM_PHONE_NUMBER", "").strip()
 
 
+def _mask(number: str) -> str:
+    """Show enough of a number to compare/spot typos without exposing it fully."""
+    if not number or len(number) <= 6:
+        return "*" * len(number or "")
+    return f"{number[:4]}...{number[-2:]}"
+
+
 @app.route("/connect", methods=["GET", "POST"])
 def connect():
     """TwiML for the BDM's leg: announce, then dial and bridge the prospect."""
@@ -90,6 +97,35 @@ def incoming():
     dial.number(bdm_number)
     response.append(dial)
     return Response(str(response), mimetype="application/xml")
+
+
+@app.route("/debug/incoming-status", methods=["GET"])
+def debug_incoming_status():
+    """TEMPORARY diagnostic route — remove once inbound routing is confirmed
+    working. Reports the parsed INBOUND_ROUTING_MAP state and the running
+    deploy's git commit, with phone numbers masked rather than exposed."""
+    raw_map = os.getenv("INBOUND_ROUTING_MAP", "")
+    parse_error = None
+    keys = []
+    if raw_map.strip():
+        try:
+            routing = json.loads(raw_map)
+        except json.JSONDecodeError as exc:
+            parse_error = str(exc)
+        else:
+            if isinstance(routing, dict):
+                keys = [_mask(k) for k in routing.keys()]
+            else:
+                parse_error = f"parsed as {type(routing).__name__}, expected an object"
+
+    return {
+        "inbound_routing_map_set": bool(raw_map.strip()),
+        "inbound_routing_map_length": len(raw_map),
+        "inbound_routing_map_parse_error": parse_error,
+        "inbound_routing_map_keys": keys,
+        "bdm_phone_number_fallback_set": bool(os.getenv("BDM_PHONE_NUMBER", "").strip()),
+        "git_commit": os.getenv("RENDER_GIT_COMMIT", "unknown"),
+    }
 
 
 if __name__ == "__main__":
