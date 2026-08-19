@@ -8,3 +8,5 @@ services:
     envVars:
       - key: TWILIO_FROM_NUMBER
         sync: false
+      - key: INBOUND_ROUTING_MAP
+        sync: false

@@ -91,14 +91,24 @@ webhook. Do this in the Twilio Console for **each** BDM's number:
 1. Deploy/confirm the bridge server first (see **Deploying the bridge
    server** above) — inbound needs `/incoming` reachable at the same
    `TWILIO_TWIML_URL`.
-2. In the Twilio Console: **Phone Numbers > Manage > Active Numbers**,
+2. On the Render service, add/update the **`INBOUND_ROUTING_MAP`**
+   environment variable — one JSON object mapping every BDM's Twilio
+   number to their personal phone (Render is a single shared server for
+   all BDMs, so it needs this to know who to ring):
+   ```json
+   {"+15551234567": "+15559876543", "+15551110000": "+15552223333"}
+   ```
+   Add a new entry here whenever a BDM gets a new/replacement Twilio
+   number — no code change or redeploy needed for that, just update this
+   variable and save (Render restarts the service automatically).
+3. In the Twilio Console: **Phone Numbers > Manage > Active Numbers**,
    click the BDM's number.
-3. Under **Voice Configuration**, set **"A call comes in"** to
+4. Under **Voice Configuration**, set **"A call comes in"** to
    **Webhook**, HTTP method **POST**, and the URL to
    `https://<your-twiml-url>/incoming` (e.g.
    `https://carolyn-twiml-bridge.onrender.com/incoming`).
-4. Save. Call the BDM's Twilio number from any phone to confirm it rings
-   the BDM's own phone (`BDM_PHONE_NUMBER`).
+5. Save. Call the BDM's Twilio number from any phone to confirm it rings
+   the right BDM's own phone.
 
 If a newly purchased number was created to replace a failed purchase,
 double-check two things that commonly go wrong on re-purchase and will

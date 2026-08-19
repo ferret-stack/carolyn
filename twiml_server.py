@@ -15,6 +15,7 @@ Twilio Console (Phone Numbers > Manage > Active Numbers > select the
 number > Voice Configuration).
 """
 
+import json
 import os
 
 from flask import Flask, Response, request
@@ -23,6 +24,29 @@ from twilio.twiml.voice_response import Dial, VoiceResponse
 from twilio_client import is_valid_e164
 
 app = Flask(__name__)
+
+
+def _bdm_number_for(called_number: str) -> str:
+    """Look up which BDM's personal phone rings for an inbound call.
+
+    One Render deployment is shared by every BDM, but each BDM has their
+    own Twilio number, so BDM_PHONE_NUMBER alone (a single value) can't
+    tell us who to ring. INBOUND_ROUTING_MAP is a JSON object mapping each
+    BDM's Twilio number to their personal phone, e.g.:
+        {"+15551234567": "+15559876543", "+15551110000": "+15552223333"}
+    Falls back to BDM_PHONE_NUMBER for simple single-BDM/local setups.
+    """
+    raw_map = os.getenv("INBOUND_ROUTING_MAP", "").strip()
+    if raw_map:
+        try:
+            routing = json.loads(raw_map)
+        except json.JSONDecodeError:
+            routing = {}
+        match = routing.get(called_number, "").strip() if isinstance(routing, dict) else ""
+        if match:
+            return match
+
+    return os.getenv("BDM_PHONE_NUMBER", "").strip()
 
 
 @app.route("/connect", methods=["GET", "POST"])
@@ -52,7 +76,8 @@ def incoming():
     Console so calls to the Twilio number (and WhatsApp verification calls)
     actually reach the BDM.
     """
-    bdm_number = os.getenv("BDM_PHONE_NUMBER", "").strip()
+    called_number = "".join(request.values.get("To", "").split())
+    bdm_number = _bdm_number_for(called_number)
 
     response = VoiceResponse()
     if not bdm_number or not is_valid_e164(bdm_number):
